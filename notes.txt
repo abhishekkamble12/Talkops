@@ -1,0 +1,213 @@
+===========================================
+   API ENDPOINTS
+===========================================
+
+1. POST /api/order/query - Submit a query
+   Returns: { status, message, requestId }
+
+2. GET /api/order/response/:requestId - Get the response
+   Returns: { status, requestId, agent, response, query, customerData, completedAt }
+
+===========================================
+   FLOW OVERVIEW
+===========================================
+
+1. Frontend sends POST /api/order/query with text + userInfo
+2. API returns immediately with a requestId
+3. Frontend polls GET /api/order/response/:requestId 
+4. When status is "completed", the response field contains the AI answer
+
+===========================================
+   CORRECT API PAYLOAD FORMAT
+===========================================
+
+Endpoint: POST /api/order/query
+
+❌ WRONG (userInfo as string):
+{
+    "text": "i am not getting the my parcel why it is late ???",
+    "userInfo": "kambleabhishek7744@gmail.com"
+}
+
+✅ CORRECT (userInfo as object):
+{
+    "text": "i am not getting the my parcel why it is late ???",
+    "userInfo": {
+        "email": "kambleabhishek7744@gmail.com"
+    }
+}
+
+===========================================
+   DEMO PAYLOADS
+===========================================
+
+1. Shipping delay query (with email):
+{
+    "text": "Where is my package? It's been delayed for days!",
+    "userInfo": {
+        "email": "customer@example.com"
+    }
+}
+
+2. Shipping query (with order ID):
+{
+    "text": "Why is my order late?",
+    "userInfo": {
+        "orderId": "ORD-12345"
+    }
+}
+
+3. Payment issue query:
+{
+    "text": "My payment failed, what should I do?",
+    "userInfo": {
+        "email": "customer@example.com",
+        "customerId": "CUST-001"
+    }
+}
+
+4. Full userInfo example:
+{
+    "text": "I need help with my order",
+    "userInfo": {
+        "email": "john.doe@example.com",
+        "customerId": "CUST-12345",
+        "orderId": "ORD-67890",
+        "trackingNumber": "TRK-ABC123",
+        "phone": "+1234567890",
+        "name": "John Doe"
+    }
+}
+
+5. Simple query (without userInfo):
+{
+    "text": "Why is my delivery late?"
+}
+
+===========================================
+   CURL EXAMPLES
+===========================================
+
+# Step 1: Submit query
+curl -X POST http://localhost:3001/api/order/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Where is my package?",
+    "userInfo": {
+      "email": "kambleabhishek7744@gmail.com"
+    }
+  }'
+
+# Response: {"status":"Accepted","message":"Your query is being processed","requestId":"abc-123-..."}
+
+# Step 2: Poll for response (replace REQUEST_ID with the actual requestId)
+curl http://localhost:3001/api/order/response/REQUEST_ID
+
+# Response (processing): {"status":"processing","requestId":"..."}
+# Response (completed): {"status":"completed","agent":"havoc","response":"Your package is...","requestId":"..."}
+
+===========================================
+   userInfo SCHEMA
+===========================================
+
+userInfo is an OBJECT with these optional fields:
+- email: string (customer email)
+- customerId: string (customer ID)
+- orderId: string (order ID)
+- trackingNumber: string (tracking number)
+- phone: string (phone number)
+- name: string (customer name)
+
+All fields are optional, but providing them helps
+identify the customer in the database.
+
+===========================================
+   VOICE API ENDPOINTS (NEW!)
+===========================================
+
+1. POST /api/voice/query - Submit voice/text query
+   Body: {
+     "text": "query text" OR "audioBase64": "base64 audio",
+     "userInfo": {...},
+     "enableVoiceResponse": true
+   }
+   Returns: { status, message, requestId, transcribedText }
+
+2. GET /api/voice/response/:requestId - Get voice response
+   Returns: {
+     status, requestId, query, agent, response,
+     audioUrl, audioReady, audioGeneratedAt
+   }
+
+===========================================
+   VOICE CURL EXAMPLES
+===========================================
+
+# Submit text with voice response enabled:
+curl -X POST http://localhost:3000/api/voice/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Where is my package?",
+    "userInfo": {"email": "test@example.com"},
+    "enableVoiceResponse": true
+  }'
+
+# Get voice response:
+curl http://localhost:3000/api/voice/response/REQUEST_ID
+
+# Play the audio (when audioReady is true):
+# Audio file is at: http://localhost:3000/audio/response_REQUEST_ID.wav
+
+===========================================
+   FRAUD DETECTION & REFUND FLOW (NEW!)
+===========================================
+
+When a user requests a refund, the flow is:
+
+1. User submits refund request
+2. Agents.step.ts detects "refund" keywords → routes to Fraud Detector
+3. Fraud_detector.step.ts checks:
+   - Customer exists in database
+   - Order exists
+   - Order age (not too new)
+   - Recent refund count (max 3 in 30 days)
+   - Risk score calculation
+4. IF fraud check PASSES → Refund_agent.step.ts processes refund
+5. IF fraud check FAILS → Request blocked, user notified
+
+Fraud Detection Rules:
+- Max 3 refunds in 30 days
+- Orders must be at least 1 hour old
+- High-value orders (>$500) flagged
+- New accounts (<7 days) higher risk
+- Risk score > 70 = blocked
+
+===========================================
+   REFUND CURL EXAMPLE
+===========================================
+
+curl -X POST http://localhost:3000/api/order/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "I want a refund for my order",
+    "userInfo": {
+      "email": "customer@example.com",
+      "orderId": "ORD-12345"
+    }
+  }'
+
+Response includes: refundId, refundApproved, fraudDetected
+
+===========================================
+   ENVIRONMENT VARIABLES REQUIRED
+===========================================
+
+Add these to your .env file:
+
+GEMINI_API_KEY=your_gemini_api_key
+MONGODB_URI=mongodb://localhost:27017/hackathon_db
+REDIS_URL=redis://localhost:6379
+GROQ_API_KEY=your_groq_api_key
+
+Get GROQ_API_KEY from: https://console.groq.com/
+
