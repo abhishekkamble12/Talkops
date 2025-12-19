@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { GoogleGenAI } from '@google/genai'
 import { connectToDb } from '../lib/db'
 import { Customer } from '../models/Customer'
+import { logPaymentFailure } from '../lib/failureLogger'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
@@ -214,6 +215,26 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     // Retrieve customer data
     const customerData = await retrieveCustomerData(text, userInfo)
 
+    // Log payment failures from customer data for RCA
+    const paymentIssues = customerData?.orders?.filter(
+      (o: any) => o.issue?.type === 'payment_failed'
+    ) || []
+    
+    for (const order of paymentIssues) {
+      logPaymentFailure({
+        agent_name: 'hulk',
+        request_id: requestId,
+        gateway: order.paymentGateway || 'unknown_gateway',
+        error_message: order.issue?.description || 'Payment failed',
+        correlation_id: order.orderId,
+        metadata: {
+          orderId: order.orderId,
+          amount: order.price,
+          issueType: order.issue?.type,
+        },
+      })
+    }
+
     if (!customerData) {
       logger.warn('[Agent Hulk] No customer found', { text })
 
@@ -326,6 +347,15 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     })
   } catch (error: any) {
     logger.error('[Agent Hulk] Error processing query', { error: error?.message })
+
+    // Log the payment agent failure for RCA
+    logPaymentFailure({
+      agent_name: 'hulk',
+      request_id: requestId,
+      gateway: 'unknown',
+      error_message: error?.message || 'Unknown payment agent error',
+      metadata: { query: text, userInfo },
+    })
 
     const fallbackResponse = generateFallbackResponse(null, text)
 

@@ -18,6 +18,7 @@ An intelligent, multi-agent customer support system built with **Motia Framework
 - [Step-by-Step Flow Explanation](#step-by-step-flow-explanation)
 - [Usage Examples](#usage-examples)
 - [Voice Integration](#voice-integration)
+- [Root Cause Analysis (RCA)](#root-cause-analysis-rca)
 - [Database Schema](#database-schema)
 - [Error Handling](#error-handling)
 - [Contributing](#contributing)
@@ -41,9 +42,11 @@ This project implements an **AI-powered customer support system** that:
 | 🧠 **Intelligent Routing** | AI determines which agent handles each query |
 | 📦 **Shipping Support** | Agent Havoc handles delivery delays, tracking issues |
 | 💳 **Payment Support** | Agent Hulk handles payment failures, refunds, billing |
+| 🛡️ **Fraud Detection** | Fraud Detector validates refund requests before processing |
 | 🎤 **Voice Input** | Speech-to-text transcription via Groq Whisper |
 | 🔊 **Voice Output** | Text-to-speech responses via Groq PlayAI |
 | 🗄️ **Customer Data** | Personalized responses based on order history |
+| 📊 **Root Cause Analysis** | Automated failure analysis with AI-powered summaries |
 
 ---
 
@@ -183,13 +186,21 @@ hackathon_project/
 │   │   ├── Agents.step.ts        # Event: AI-powered query routing
 │   │   ├── Agent_havoc.step.ts   # Event: Shipping support agent
 │   │   ├── Agents_hulk.step.ts   # Event: Payment support agent
+│   │   ├── Fraud_detector.step.ts # Event: Fraud detection for refunds
+│   │   ├── Refund_agent.step.ts  # Event: Process approved refunds
 │   │   ├── Havoc_response.step.ts# Event: Shipping response handler
 │   │   ├── Hulk_response.step.ts # Event: Payment response handler
 │   │   ├── Voice_output.step.ts  # Event: TTS synthesis
 │   │   ├── GetResponse.step.ts   # API: Retrieve text response
-│   │   └── GetVoiceResponse.step.ts # API: Retrieve voice response
+│   │   ├── GetVoiceResponse.step.ts # API: Retrieve voice response
+│   │   ├── rca-analysis.step.ts  # Cron: Hourly RCA analysis
+│   │   ├── rca-api.step.ts       # API: GET /api/rca/report
+│   │   └── rca-stats.step.ts     # API: GET /api/rca/stats
 │   ├── lib/
-│   │   └── db.ts                 # MongoDB connection utility
+│   │   ├── db.ts                 # MongoDB connection utility
+│   │   ├── failureStore.ts       # In-memory failure event storage
+│   │   ├── failureLogger.ts      # Failure logging module
+│   │   └── rcaEngine.ts          # RCA engine with aggregation + AI
 │   └── models/
 │       └── Customer.ts           # Mongoose schema for customers
 ├── public/
@@ -611,6 +622,277 @@ Generated audio files are stored in:
 ```
 
 Access via: `http://localhost:3000/audio/response_{requestId}.wav`
+
+---
+
+## 📊 Root Cause Analysis (RCA)
+
+The system includes a **lightweight RCA layer** that converts the reactive multi-agent system into a **learning system**. It automatically tracks failures, aggregates statistics, and uses AI to generate human-readable insights.
+
+### 🎯 Design Principles
+
+| Principle | Implementation |
+|-----------|----------------|
+| **No new agents** | Only added modules, cron step, and API endpoints |
+| **No fancy UI** | Text/JSON output only |
+| **No ML models** | Rule-based aggregation logic |
+| **AI only summarizes** | AI receives stats, produces 1-2 line natural language summary |
+| **Decisions remain rule-based** | All counts/percentages calculated by deterministic code |
+
+### 📁 RCA Module Structure
+
+```
+src/
+├── lib/
+│   ├── failureStore.ts      # In-memory storage for failure_events
+│   ├── failureLogger.ts     # Failure logging module
+│   └── rcaEngine.ts         # RCA engine with aggregation + AI summary
+└── steps/
+    ├── rca-analysis.step.ts # Cron: Hourly RCA analysis
+    ├── rca-api.step.ts      # API: GET /api/rca/report
+    └── rca-stats.step.ts    # API: GET /api/rca/stats
+```
+
+### 📝 Failure Logging
+
+Failures are automatically logged from all agents with the following schema:
+
+```typescript
+interface FailureEvent {
+  id: string
+  failure_type: 'payment' | 'fraud' | 'shipping'
+  agent_name: string
+  gateway?: string           // e.g., 'stripe', 'fedex', 'refund_validation'
+  timestamp: Date
+  request_id: string
+  correlation_id?: string    // e.g., orderId
+  error_message?: string
+  metadata?: Record<string, any>
+}
+```
+
+**Usage in agents:**
+
+```typescript
+import { logPaymentFailure, logShippingFailure, logFraudFailure } from '../lib/failureLogger'
+
+// Log a payment failure
+logPaymentFailure({
+  agent_name: 'hulk',
+  request_id: requestId,
+  gateway: 'stripe',
+  error_message: 'Card declined',
+})
+
+// Log a shipping failure
+logShippingFailure({
+  agent_name: 'havoc',
+  request_id: requestId,
+  gateway: 'fedex',
+  error_message: 'Delivery delayed - weather',
+  correlation_id: orderId,
+})
+```
+
+### 📈 Aggregation Logic
+
+The RCA engine provides the following aggregation functions:
+
+| Function | Description |
+|----------|-------------|
+| `aggregateBy('failure_type')` | Group failures by type (payment/fraud/shipping) |
+| `aggregateBy('agent_name')` | Group failures by agent (hulk/havoc/fraud_detector) |
+| `aggregateBy('gateway')` | Group failures by gateway/carrier |
+| `getFailuresByHour()` | Distribution of failures by hour (0-23) |
+| `getPeakFailureHours(3)` | Top 3 hours with most failures |
+| `getRepeatedPatterns()` | Identify recurring failure patterns |
+
+**Example aggregation output:**
+
+```json
+{
+  "by_type": [
+    { "key": "payment", "count": 15, "percentage": 45 },
+    { "key": "shipping", "count": 10, "percentage": 30 },
+    { "key": "fraud", "count": 8, "percentage": 25 }
+  ],
+  "by_gateway": [
+    { "key": "stripe", "count": 12, "percentage": 80 },
+    { "key": "fedex", "count": 5, "percentage": 50 }
+  ],
+  "peak_hours": [
+    { "hour": 18, "count": 15, "percentage": 35 },
+    { "hour": 19, "count": 12, "percentage": 28 }
+  ]
+}
+```
+
+### 🤖 AI Summarization
+
+The RCA engine sends **only aggregated statistics** to the LLM, which generates a **1-2 line natural language summary**.
+
+**Important:** AI does NOT make decisions. It only explains what the data shows.
+
+**Example AI Summary:**
+```
+"80% of payment failures occurred on Stripe gateway between 6-8 PM. 
+Shipping delays were primarily from FedEx due to weather conditions."
+```
+
+### 📡 RCA API Endpoints
+
+#### `GET /api/rca/report`
+
+Get full RCA analysis with AI-generated summary.
+
+**Query Parameters:**
+- `hours` - Number of hours to look back (default: 24)
+- `format` - Output format: `json` or `text` (default: json)
+
+**Example Request:**
+```bash
+curl "http://localhost:3000/api/rca/report?hours=24&format=json"
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "report": {
+    "generated_at": "2024-12-18T10:00:00.000Z",
+    "time_window": {
+      "from": "2024-12-17T10:00:00.000Z",
+      "to": "2024-12-18T10:00:00.000Z",
+      "hours": 24
+    },
+    "summary": {
+      "total_failures": 33,
+      "by_type": [
+        { "key": "payment", "count": 15, "percentage": 45 }
+      ],
+      "by_agent": [
+        { "key": "hulk", "count": 15, "percentage": 45 }
+      ],
+      "by_gateway": [
+        { "key": "stripe", "count": 12, "percentage": 80 }
+      ]
+    },
+    "time_analysis": {
+      "peak_hours": [
+        { "hour": 18, "count": 15, "percentage": 35 }
+      ]
+    },
+    "patterns": {
+      "repeated_failures": [
+        { "pattern": "hulk:stripe:Card declined", "count": 10 }
+      ]
+    },
+    "insights": {
+      "most_failing_gateway": { "name": "stripe", "percentage": 80, "count": 12 },
+      "peak_failure_window": { "hours": "6 PM-8 PM", "percentage": 63 }
+    },
+    "ai_summary": "80% of payment failures occurred on Stripe between 6-8 PM."
+  }
+}
+```
+
+#### `GET /api/rca/stats`
+
+Get quick statistics without AI call (faster endpoint).
+
+**Query Parameters:**
+- `hours` - Number of hours to look back (default: 24)
+
+**Example Request:**
+```bash
+curl "http://localhost:3000/api/rca/stats?hours=24"
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "time_window_hours": 24,
+  "stats": {
+    "total_failures": 33,
+    "top_failure_type": { "type": "payment", "count": 15, "percentage": 45 },
+    "top_gateway": { "name": "stripe", "count": 12, "percentage": 80 },
+    "top_agent": { "name": "hulk", "count": 15, "percentage": 45 },
+    "store": {
+      "total_events": 33,
+      "oldest_event": "2024-12-17T10:00:00.000Z",
+      "newest_event": "2024-12-18T09:55:00.000Z"
+    }
+  }
+}
+```
+
+### ⏰ Automated Analysis (Cron)
+
+The `RCAAnalysisCron` step runs **every hour** and:
+
+1. Analyzes the last 24 hours of failure events
+2. Generates structured insights (counts, percentages)
+3. Calls AI for a natural language summary
+4. Stores the report in Motia state
+5. Emits `rca.report.generated` event
+
+**Cron Schedule:** `0 * * * *` (every hour at minute 0)
+
+### 📋 Example RCA Report (Text Format)
+
+```
+═══════════════════════════════════════════════════════════
+                    RCA ANALYSIS REPORT                     
+═══════════════════════════════════════════════════════════
+
+Generated: 2024-12-18T10:00:00.000Z
+Window: 24 hours
+
+📊 SUMMARY
+   Total Failures: 33
+
+   By Type:
+     • payment: 15 (45%)
+     • shipping: 10 (30%)
+     • fraud: 8 (25%)
+
+   By Agent:
+     • hulk: 15 (45%)
+     • havoc: 10 (30%)
+     • fraud_detector: 8 (25%)
+
+   By Gateway:
+     • stripe: 12 (80%)
+     • fedex: 5 (50%)
+     • refund_validation: 8 (100%)
+
+⏰ PEAK FAILURE HOURS
+     • 6 PM: 15 failures (35%)
+     • 7 PM: 12 failures (28%)
+     • 8 PM: 6 failures (14%)
+
+🔄 REPEATED PATTERNS
+     • hulk + stripe: 12x
+     • havoc + fedex: 5x
+     • fraud_detector + refund_validation: 8x
+
+🤖 AI SUMMARY
+   "80% of payment failures occurred on Stripe gateway between 6-8 PM.
+    Shipping delays were primarily from FedEx due to weather conditions."
+
+═══════════════════════════════════════════════════════════
+```
+
+### 🔧 Integration with Existing Agents
+
+Failure logging is automatically integrated into the existing agents:
+
+| Agent | Failure Type | What's Logged |
+|-------|--------------|---------------|
+| **Agent Havoc** | `shipping` | Delayed orders, carrier issues, agent errors |
+| **Agent Hulk** | `payment` | Payment failures, transaction errors |
+| **Fraud Detector** | `fraud` | Blocked refunds, high risk scores, system errors |
 
 ---
 

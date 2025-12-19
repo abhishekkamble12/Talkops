@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { GoogleGenAI } from '@google/genai'
 import { connectToDb } from '../lib/db'
 import { Customer, ICustomer } from '../models/Customer'
+import { logShippingFailure } from '../lib/failureLogger'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
@@ -213,6 +214,28 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     // Retrieve customer data from database using both text query and userInfo
     const customerData = await retrieveCustomerData(text, userInfo)
 
+    // Check for delayed orders and log shipping failures
+    const delayedOrders = customerData?.orders?.filter(
+      (order: any) => order.shipmentStatus === 'delayed' || order.issue?.type !== 'none'
+    ) || []
+    
+    // Log each delayed order as a shipping failure for RCA
+    for (const order of delayedOrders) {
+      logShippingFailure({
+        agent_name: 'havoc',
+        request_id: requestId,
+        gateway: order.carrier || 'unknown_carrier',
+        error_message: order.issue?.description || `Shipment ${order.shipmentStatus}`,
+        correlation_id: order.orderId,
+        metadata: {
+          orderId: order.orderId,
+          shipmentStatus: order.shipmentStatus,
+          issueType: order.issue?.type,
+          carrier: order.carrier,
+        },
+      })
+    }
+
     if (!customerData) {
       logger.warn('[Agent Havoc] No customer found for query', { text })
 
@@ -325,6 +348,15 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     })
   } catch (error: any) {
     logger.error('[Agent Havoc] Error processing query', { error: error?.message })
+
+    // Log the shipping failure for RCA
+    logShippingFailure({
+      agent_name: 'havoc',
+      request_id: requestId,
+      gateway: 'unknown',  // Could be carrier if known
+      error_message: error?.message || 'Unknown shipping agent error',
+      metadata: { query: text, userInfo },
+    })
 
     const fallbackResponse = generateFallbackResponse(null, text)
 

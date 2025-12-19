@@ -2,6 +2,7 @@ import { EventConfig, EventHandler } from 'motia'
 import { z } from 'zod'
 import { connectToDb } from '../lib/db'
 import { Customer, ICustomer } from '../models/Customer'
+import { logFraudFailure } from '../lib/failureLogger'
 
 // User info schema
 const userInfoSchema = z.object({
@@ -286,6 +287,20 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
         requestId,
       })
 
+      // Log the fraud detection for RCA
+      logFraudFailure({
+        agent_name: 'fraud_detector',
+        request_id: requestId,
+        gateway: 'refund_validation',
+        error_message: fraudCheck.reason || 'Fraud check failed',
+        correlation_id: userInfo?.orderId,
+        metadata: {
+          riskScore: fraudCheck.riskScore,
+          flags: fraudCheck.flags,
+          customerId: customer?.customerId,
+        },
+      })
+
       const blockMessage = `🚫 Refund Request Blocked\n\n${fraudCheck.reason}\n\nRisk Flags: ${fraudCheck.flags.join(', ')}\n\nIf you believe this is an error, please contact our customer support team at support@company.com or call 1-800-SUPPORT.`
 
       // Update state with blocked refund
@@ -316,6 +331,15 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     }
   } catch (error: any) {
     logger.error('[FraudDetector] Error during fraud check', { error: error?.message, requestId })
+
+    // Log the fraud detection error for RCA
+    logFraudFailure({
+      agent_name: 'fraud_detector',
+      request_id: requestId,
+      gateway: 'system',
+      error_message: error?.message || 'System error during fraud verification',
+      metadata: { query: text, userInfo },
+    })
 
     // On error, block for safety
     const errorMessage = 'Unable to verify refund request at this time. Please try again later or contact customer support.'

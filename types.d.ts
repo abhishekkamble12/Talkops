@@ -13,9 +13,11 @@ declare module 'motia' {
 
   interface Handlers {
     'VoiceOutput': EventHandler<unknown, never>
-    'voiceInput': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
     'RefundResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
     'RefundAgent': EventHandler<unknown, { topic: 'refund.response'; data: unknown }>
+    'GetRCAStats': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'GetRCAReport': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'RCAAnalysisCron': CronHandler<never>
     'HulkResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
     'HavocResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
     'getVoiceResponse': ApiRouteHandler<Record<string, unknown>, unknown, never>
@@ -26,6 +28,7 @@ declare module 'motia' {
     'Agent_havoc': EventHandler<unknown, { topic: 'havoc.response'; data: unknown }>
     'Agent_hulk': EventHandler<unknown, { topic: 'hulk.response'; data: unknown }>
     'AnalyzeQuery': EventHandler<unknown, { topic: 'google.havocRequest'; data: unknown } | { topic: 'google.hulkRequest'; data: unknown } | { topic: 'google.fraud_detectorRequest'; data: unknown }>
+    'voiceInput': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
   }
     
 }

@@ -20,8 +20,8 @@
         "y": 77
       },
       "src\\steps\\Voice_input.step.ts": {
-        "x": 0,
-        "y": 0
+        "x": -378,
+        "y": 459
       },
       "src\\steps\\Refund_response.step.ts": {
         "x": 1400,
@@ -32,44 +32,44 @@
         "y": 458
       },
       "src\\steps\\Hulk_response.step.ts": {
-        "x": 1050,
-        "y": 276
+        "x": 816,
+        "y": -70
       },
       "src\\steps\\Havoc_response.step.ts": {
-        "x": 1050,
-        "y": 451
+        "x": 914,
+        "y": 224
       },
       "src\\steps\\GetVoiceResponse.step.ts": {
-        "x": 0,
-        "y": 243
+        "x": -1041,
+        "y": 289
       },
       "src\\steps\\GetResponse.step.ts": {
-        "x": 4,
-        "y": 466
+        "x": -956,
+        "y": 559
       },
       "src\\steps\\Fraud_response.step.ts": {
         "x": 1400,
         "y": 624
       },
-      "src\\steps\\Fraud_detector.step.ts": {
-        "x": 700,
-        "y": 526
-      },
       "src\\steps\\Analyze.step.ts": {
-        "x": 0,
-        "y": 44
-      },
-      "src\\steps\\Agent_havoc.step.ts": {
-        "x": 700,
-        "y": 0
-      },
-      "src\\steps\\Agents_hulk.step.ts": {
-        "x": 700,
-        "y": 155
+        "x": -469,
+        "y": -13
       },
       "src\\steps\\Agents.step.ts": {
-        "x": 350,
-        "y": 292
+        "x": -34,
+        "y": 241
+      },
+      "src\\steps\\Fraud_detector.step.ts": {
+        "x": 435,
+        "y": 596
+      },
+      "src\\steps\\Agents_hulk.step.ts": {
+        "x": 310,
+        "y": -54
+      },
+      "src\\steps\\Agent_havoc.step.ts": {
+        "x": 1232,
+        "y": -678
       }
     }
   }

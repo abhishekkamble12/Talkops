@@ -1,4 +1,72 @@
 ===========================================
+   🚀 QUICK START - COPY THESE PAYLOADS!
+===========================================
+
+⚠️ IMPORTANT: You must do TWO steps!
+   Step 1: POST → get requestId
+   Step 2: GET using that requestId
+
+-------------------------------------------
+STEP 1: POST /api/order/query
+-------------------------------------------
+Method: POST
+URL: http://localhost:3000/api/order/query
+Headers: Content-Type: application/json
+Body (raw JSON):
+
+{
+    "text": "My payment failed, what should I do?",
+    "userInfo": {
+        "email": "customer@example.com",
+        "customerId": "CUST-001"
+    }
+}
+
+Expected Response:
+{
+    "status": "Accepted",
+    "message": "Your query is being processed",
+    "requestId": "550e8400-e29b-41d4-a716-446655440000"  <-- COPY THIS!
+}
+
+-------------------------------------------
+STEP 2: GET /api/order/response/{requestId}
+-------------------------------------------
+Method: GET
+URL: http://localhost:3000/api/order/response/550e8400-e29b-41d4-a716-446655440000
+       ↑↑↑ Replace with YOUR actual requestId from Step 1!
+
+Expected Response (wait 2-3 seconds):
+{
+    "status": "completed",
+    "agent": "hulk",
+    "response": "I see there was an issue with your payment...",
+    "requestId": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+-------------------------------------------
+🎤 VOICE ENDPOINTS (Same pattern!)
+-------------------------------------------
+STEP 1: POST /api/voice/query
+URL: http://localhost:3000/api/voice/query
+Body:
+{
+    "text": "Where is my package?",
+    "userInfo": {"email": "test@example.com"},
+    "enableVoiceResponse": true
+}
+
+STEP 2: GET /api/voice/response/{requestId}
+URL: http://localhost:3000/api/voice/response/{paste-requestId-here}
+
+-------------------------------------------
+📊 RCA ENDPOINTS (No requestId needed!)
+-------------------------------------------
+GET http://localhost:3000/api/rca/stats
+GET http://localhost:3000/api/rca/report
+GET http://localhost:3000/api/rca/report?hours=12&format=text
+
+===========================================
    API ENDPOINTS
 ===========================================
 
@@ -62,7 +130,7 @@ Endpoint: POST /api/order/query
     "text": "My payment failed, what should I do?",
     "userInfo": {
         "email": "customer@example.com",
-        "customerId": "CUST-001"
+        "customerId": "C UST-001"
     }
 }
 
@@ -210,4 +278,114 @@ REDIS_URL=redis://localhost:6379
 GROQ_API_KEY=your_groq_api_key
 
 Get GROQ_API_KEY from: https://console.groq.com/
+
+===========================   ================
+   ⚠️ COMMON MISTAKE - READ THIS!
+===========================================
+
+ERROR: "404 Not Found" when calling GET /api/voice/response/:requestId
+
+REASON: You're passing ":requestId" literally instead of 
+        an actual request ID!
+
+CORRECT FLOW:
+1. First, call POST to submit your query
+2. Get the "requestId" from the response
+3. Then use that requestId in the GET call
+
+Example:
+Step 1: POST /api/voice/query → returns {"requestId": "abc-123-xyz"}
+Step 2: GET /api/voice/response/abc-123-xyz  (use the actual ID!)
+
+===========================================
+   RCA (ROOT CAUSE ANALYSIS) API ENDPOINTS
+===========================================
+
+1. GET /api/rca/report - Full RCA report with AI summary
+   Query params: 
+   - hours (default: 24) - hours to look back
+   - format (default: json) - "json" or "text"
+
+2. GET /api/rca/stats - Quick stats (no AI call, faster)
+   Query params:
+   - hours (default: 24) - hours to look back
+
+===========================================
+   RCA API EXAMPLES
+===========================================
+
+# Get full RCA report (JSON):
+GET http://localhost:3001/api/rca/report
+
+# Get RCA report for last 12 hours:
+GET http://localhost:3001/api/rca/report?hours=12
+
+# Get RCA report as text:
+GET http://localhost:3001/api/rca/report?format=text
+
+# Get quick stats only (faster, no AI):
+GET http://localhost:3001/api/rca/stats
+
+# Get stats for last 6 hours:
+GET http://localhost:3001/api/rca/stats?hours=6
+
+===========================================
+   RCA CURL EXAMPLES
+===========================================
+
+# Get full RCA report
+curl http://localhost:3001/api/rca/report
+
+# Get RCA report for last 12 hours as text
+curl "http://localhost:3001/api/rca/report?hours=12&format=text"
+
+# Get quick stats
+curl http://localhost:3001/api/rca/stats
+
+===========================================
+   COMPLETE WORKFLOW EXAMPLE
+===========================================
+
+STEP 1: Submit a payment failure query
+POST http://localhost:3001/api/order/query
+Body:
+{
+    "text": "My payment failed, what should I do?",
+    "userInfo": {
+        "email": "customer@example.com",
+        "customerId": "CUST-001"
+    }
+}
+
+Response:
+{
+    "status": "Accepted",
+    "message": "Your query is being processed",
+    "requestId": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+STEP 2: Get the response (use the requestId from Step 1!)
+GET http://localhost:3001/api/order/response/550e8400-e29b-41d4-a716-446655440000
+
+Response (when completed):
+{
+    "status": "completed",
+    "agent": "hulk",
+    "response": "I see there was an issue with your payment...",
+    "requestId": "550e8400-e29b-41d4-a716-446655440000"
+}
+
+STEP 3: Check RCA stats to see logged failures
+GET http://localhost:3001/api/rca/stats
+
+Response:
+{
+    "success": true,
+    "time_window_hours": 24,
+    "stats": {
+        "total_failures": 5,
+        "top_failure_type": {"type": "payment", "count": 3, "percentage": 60},
+        "top_gateway": {"name": "stripe", "count": 2, "percentage": 67}
+    }
+}
 
