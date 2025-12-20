@@ -41,8 +41,11 @@ This project implements an **AI-powered customer support system** that:
 |---------|-------------|
 | 🧠 **Intelligent Routing** | AI determines which agent handles each query |
 | 📦 **Shipping Support** | Agent Havoc handles delivery delays, tracking issues |
-| 💳 **Payment Support** | Agent Hulk handles payment failures, refunds, billing |
+| 💳 **Payment Support** | Agent Hulk handles payment failures, billing |
+| 💰 **Refund Processing** | Refund Agent processes approved refunds |
 | 🛡️ **Fraud Detection** | Fraud Detector validates refund requests before processing |
+| 🎙️ **Voice Communication** | Agent Aisha transforms responses into empathetic voice communications |
+| 🚨 **SRE Monitoring** | Agent Sentinel monitors system health and alerts developers |
 | 🎤 **Voice Input** | Speech-to-text transcription via Groq Whisper |
 | 🔊 **Voice Output** | Text-to-speech responses via Groq PlayAI |
 | 🗄️ **Customer Data** | Personalized responses based on order history |
@@ -118,6 +121,77 @@ This project implements an **AI-powered customer support system** that:
 
 ---
 
+## 🤖 Agent Event Flow
+
+The system uses event-driven architecture where agents communicate via topic subscriptions:
+
+```
+                              ┌─────────────────────────────────────┐
+                              │         API Entry Points            │
+                              │  (Analyze, Voice_input, Query)      │
+                              └─────────────────┬───────────────────┘
+                                               │
+                                  emit: google.analyzequeryRequest
+                                               │
+                              ┌────────────────▼────────────────────┐
+                              │          Agents.step.ts             │
+                              │       (AI Query Router)             │
+                              └───┬─────────────┬──────────────┬────┘
+                                  │             │              │
+        google.havocRequest ◄─────┘             │              └─────► google.fraud_detectorRequest
+                │                               │                              │
+                ▼                               │                              ▼
+    ┌───────────────────────┐                  │                  ┌───────────────────────┐
+    │   Agent_Havoc.step    │          google.hulkRequest         │  Fraud_detector.step  │
+    │   (Shipping Agent)    │                  │                  │  (Fraud Detection)    │
+    └───────────┬───────────┘                  │                  └───────────┬───────────┘
+                │                              ▼                              │
+        havoc.response              ┌───────────────────────┐        google.refund.requested
+                │                   │   Agent_Hulk.step     │                 │
+                │                   │   (Payment Agent)     │                 ▼
+                │                   └───────────┬───────────┘      ┌───────────────────────┐
+                │                               │                  │   Refund_agent.step   │
+                │                        hulk.response             │  (Refund Processing)  │
+                │                               │                  └───────────┬───────────┘
+                │                               │                              │
+                │                               │                    refund.response / fraud.response
+                │                               │                              │
+                └───────────────────────────────┼──────────────────────────────┘
+                                               │
+                              ┌────────────────▼────────────────────┐
+                              │        agent-aisha.step.ts          │
+                              │   (Voice Communication Layer)       │
+                              │  Subscribes to: havoc.response,     │
+                              │  hulk.response, refund.response,    │
+                              │  fraud.response                     │
+                              └─────────────────┬───────────────────┘
+                                               │
+                                      voice.synthesize
+                                               │
+                              ┌────────────────▼────────────────────┐
+                              │       Voice_output.step.ts          │
+                              │         (TTS Synthesis)             │
+                              └─────────────────────────────────────┘
+```
+
+### SRE Monitoring Flow
+
+```
+   System Health Events                        ┌─────────────────────────┐
+  (system.health.down, etc.)  ─────────────►   │  agent-sentinel.step    │
+                                               │  (SRE Monitoring)       │
+                                               └───────────┬─────────────┘
+                                                           │
+                                                    dev.alert.sent
+                                                           │
+                                               ┌───────────▼─────────────┐
+                                               │ dev-alert-handler.step  │
+                                               │ (Log & Store Alerts)    │
+                                               └─────────────────────────┘
+```
+
+---
+
 ## ✨ Features
 
 ### 🎯 Intelligent Query Routing
@@ -125,9 +199,28 @@ This project implements an **AI-powered customer support system** that:
 The system uses **Google Gemini AI** to analyze customer queries and route them to the appropriate specialist agent:
 
 - **Agent Havoc** 📦: Shipping delays, tracking issues, delivery problems
-- **Agent Hulk** 💳: Payment failures, refunds, billing inquiries
+- **Agent Hulk** 💳: Payment failures, billing inquiries (NOT refunds)
+- **Fraud Detector** 🛡️: Validates refund requests for fraud before processing
+- **Refund Agent** 💰: Processes approved refund requests
 
 If AI is unavailable (quota exceeded), a **keyword-based fallback** ensures queries still get routed correctly.
+
+### 🎙️ Agent Aisha - Voice Communication Layer
+
+**Agent Aisha** acts as the customer-facing communication layer:
+- Transforms technical internal responses into empathetic, voice-friendly messages
+- Listens to all agent responses (`havoc.response`, `hulk.response`, `refund.response`, `fraud.response`)
+- Triggers voice synthesis for audio output
+- Uses AI to create warm, conversational responses
+
+### 🚨 Agent Sentinel - SRE/DevOps Monitoring
+
+**Agent Sentinel** monitors system health and alerts developers:
+- Monitors health events (`system.health.down`, `system.health.degraded`, etc.)
+- Determines severity using configurable policies
+- Notifies developers via configurable channels (Slack, Email, PagerDuty)
+- Generates AI-written incident summaries
+- NEVER notifies customers directly
 
 ### 🗣️ Voice Integration
 
@@ -180,36 +273,56 @@ Agents retrieve customer information from MongoDB using multiple identifiers:
 ```
 hackathon_project/
 ├── src/
-│   ├── steps/                    # Motia workflow steps
-│   │   ├── Analyze.step.ts       # API: Entry point for text queries
-│   │   ├── Voice_input.step.ts   # API: Entry point for voice queries
-│   │   ├── Agents.step.ts        # Event: AI-powered query routing
-│   │   ├── Agent_havoc.step.ts   # Event: Shipping support agent
-│   │   ├── Agents_hulk.step.ts   # Event: Payment support agent
-│   │   ├── Fraud_detector.step.ts # Event: Fraud detection for refunds
-│   │   ├── Refund_agent.step.ts  # Event: Process approved refunds
-│   │   ├── Havoc_response.step.ts# Event: Shipping response handler
-│   │   ├── Hulk_response.step.ts # Event: Payment response handler
-│   │   ├── Voice_output.step.ts  # Event: TTS synthesis
-│   │   ├── GetResponse.step.ts   # API: Retrieve text response
-│   │   ├── GetVoiceResponse.step.ts # API: Retrieve voice response
-│   │   ├── rca-analysis.step.ts  # Cron: Hourly RCA analysis
-│   │   ├── rca-api.step.ts       # API: GET /api/rca/report
-│   │   └── rca-stats.step.ts     # API: GET /api/rca/stats
+│   ├── steps/                        # Motia workflow steps
+│   │   │
+│   │   │ # === API ENTRY POINTS ===
+│   │   ├── Analyze.step.ts           # API: Entry point for text queries
+│   │   ├── Voice_input.step.ts       # API: Entry point for voice queries
+│   │   ├── GetResponse.step.ts       # API: Retrieve text response
+│   │   ├── GetVoiceResponse.step.ts  # API: Retrieve voice response
+│   │   │
+│   │   │ # === CUSTOMER SUPPORT AGENTS ===
+│   │   ├── Agents.step.ts            # Event: AI-powered query routing
+│   │   ├── Agent_Havoc.step.ts       # Event: Shipping & delivery support
+│   │   ├── Agent_Hulk.step.ts        # Event: Payment & billing support
+│   │   ├── Fraud_detector.step.ts    # Event: Fraud detection for refunds
+│   │   ├── Refund_agent.step.ts      # Event: Process approved refunds
+│   │   ├── agent-aisha.step.ts       # Event: Voice communication layer
+│   │   │
+│   │   │ # === SRE/MONITORING AGENTS ===
+│   │   ├── agent-sentinel.step.ts    # Event: System health monitoring
+│   │   ├── dev-alert-handler.step.ts # Event: Developer alert handler
+│   │   ├── System_health_api.step.ts # API: System health endpoints
+│   │   ├── System_health_status.step.ts # Event: Health status processor
+│   │   │
+│   │   │ # === VOICE PROCESSING ===
+│   │   ├── Voice_output.step.ts      # Event: TTS synthesis
+│   │   │
+│   │   │ # === RCA (ROOT CAUSE ANALYSIS) ===
+│   │   ├── rca-analysis.step.ts      # Cron: Hourly RCA analysis
+│   │   ├── rca-api.step.ts           # API: GET /api/rca/report
+│   │   ├── rca-stats.step.ts         # API: GET /api/rca/stats
+│   │   └── rca-report-handler.step.ts # Event: RCA report handler
+│   │
 │   ├── lib/
-│   │   ├── db.ts                 # MongoDB connection utility
-│   │   ├── failureStore.ts       # In-memory failure event storage
-│   │   ├── failureLogger.ts      # Failure logging module
-│   │   └── rcaEngine.ts          # RCA engine with aggregation + AI
+│   │   ├── db.ts                     # MongoDB connection utility
+│   │   ├── gemini.ts                 # Google Gemini AI utilities
+│   │   ├── failureStore.ts           # In-memory failure event storage
+│   │   ├── failureLogger.ts          # Failure logging module
+│   │   └── rcaEngine.ts              # RCA engine with aggregation + AI
+│   │
 │   └── models/
-│       └── Customer.ts           # Mongoose schema for customers
+│       ├── Customer.ts               # Mongoose schema for customers
+│       ├── Payment.ts                # Mongoose schema for payments
+│       └── SystemHealth.ts           # Mongoose schema for health events
+│
 ├── public/
-│   └── audio/                    # Generated audio files (TTS output)
-├── .env                          # Environment variables (not committed)
-├── motia.config.ts               # Motia framework configuration
-├── package.json                  # Dependencies
-├── tsconfig.json                 # TypeScript configuration
-└── README.md                     # This file
+│   └── audio/                        # Generated audio files (TTS output)
+├── .env                              # Environment variables (not committed)
+├── motia.config.ts                   # Motia framework configuration
+├── package.json                      # Dependencies
+├── tsconfig.json                     # TypeScript configuration
+└── README.md                         # This file
 ```
 
 ---
