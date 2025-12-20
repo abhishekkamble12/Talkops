@@ -116,6 +116,23 @@ export function logShippingFailure(options: {
 }
 
 /**
+ * Log a system/infrastructure failure (convenience method)
+ */
+export function logSystemFailure(options: {
+  agent_name: string
+  request_id: string
+  gateway?: string  // service name: 'api-gateway', 'database', 'redis', etc.
+  error_message?: string
+  correlation_id?: string
+  metadata?: Record<string, any>
+}): FailureEvent {
+  return logFailure({
+    ...options,
+    failure_type: 'system',
+  })
+}
+
+/**
  * Create a scoped logger for a specific agent
  * 
  * @example

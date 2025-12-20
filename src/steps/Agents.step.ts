@@ -4,6 +4,16 @@ import { GoogleGenAI } from '@google/genai'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧭 INTELLIGENT QUERY ROUTER
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// This step uses LLM to intelligently route customer queries to the appropriate
+// autonomous agent:
+// - HAVOC: Shipping, delivery, tracking issues
+// - HULK: Payment failures, billing, transactions
+// - REFUND: Refund requests (routes through fraud detection first)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 // User info schema for customer identification
 const userInfoSchema = z.object({
   email: z.string().optional(),
@@ -40,51 +50,106 @@ type EmitData =
 export const config: EventConfig = {
   type: 'event',
   name: 'AnalyzeQuery',
-  description: 'Calls Google AI to analyze query and route to the appropriate agent. Refund requests go through fraud detection first.',
+  description: 'Intelligent query router using LLM to analyze customer intent and route to the appropriate autonomous agent (Havoc, Hulk, or Fraud Detector for refunds).',
   subscribes: ['google.analyzequeryRequest'],
   emits: ['google.havocRequest', 'google.hulkRequest', 'google.fraud_detectorRequest'],
   input: inputSchema as any,
   flows: ['customer-support'],
 }
 
-const systemPrompt = `You are a helpful assistant that helps to solve user queries. You have multiple agents and you must respond with ONLY ONE WORD to indicate which agent should handle the query.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ROUTING SYSTEM PROMPT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Agent 1: havoc - handles shipping delays, tracking issues, delivery problems, package location
-Agent 2: hulk - handles payment failures, billing issues, transaction problems (NOT refunds)
-Agent 3: refund - handles refund requests, money back requests, cancellation with refund
+const systemPrompt = `You are an intelligent query router for an enterprise customer support system. Your job is to analyze customer queries and route them to the correct autonomous agent.
 
-IMPORTANT: If the user is asking for a REFUND or wants their MONEY BACK, respond with "refund"
+AVAILABLE AGENTS:
+1. HAVOC - Handles shipping and delivery issues:
+   - Package tracking, delivery status
+   - Shipping delays, lost packages
+   - Carrier issues, address problems
+   - "Where is my order?" type questions
 
-Respond with only one word: "havoc", "hulk", or "refund" based on the user's query.`
+2. HULK - Handles payment and billing issues:
+   - Payment failures, declined cards
+   - Billing questions, charges
+   - Transaction issues
+   - Payment method updates
+   - NOTE: Does NOT handle refunds
 
-// Keyword-based fallback routing when AI is unavailable
+3. REFUND - Handles refund requests (goes through fraud detection):
+   - Refund requests
+   - Money back requests
+   - Order cancellation with refund
+   - Return money requests
+
+ROUTING RULES:
+- If the query mentions "refund", "money back", "cancel order", "return money" → respond with "refund"
+- If the query is about shipping, delivery, tracking, package → respond with "havoc"
+- If the query is about payment, billing, charge, transaction (but NOT refund) → respond with "hulk"
+- When uncertain between shipping and payment, default to "havoc"
+
+RESPOND WITH EXACTLY ONE WORD: "havoc", "hulk", or "refund"`
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// KEYWORD-BASED FALLBACK ROUTING
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 function routeByKeywords(text: string): 'havoc' | 'hulk' | 'refund' {
   const lowerText = text.toLowerCase()
   
   // Refund-related keywords → fraud_detector (refund flow)
-  const refundKeywords = ['refund', 'money back', 'cancel order', 'want my money', 'return money', 'get refund', 'refunded', 'cancelled']
+  const refundKeywords = [
+    'refund', 'money back', 'cancel order', 'want my money', 
+    'return money', 'get refund', 'refunded', 'cancelled',
+    'give me back', 'reimburse', 'reimbursement'
+  ]
   if (refundKeywords.some(keyword => lowerText.includes(keyword))) {
     return 'refund'
   }
   
   // Payment-related keywords → hulk (but not refund)
-  const paymentKeywords = ['payment', 'pay', 'charge', 'bill', 'invoice', 'transaction', 'failed payment', 'card declined', 'bank']
+  const paymentKeywords = [
+    'payment', 'pay', 'charge', 'bill', 'invoice', 'transaction', 
+    'failed payment', 'card declined', 'bank', 'billing',
+    'double charge', 'overcharge', 'payment method'
+  ]
   if (paymentKeywords.some(keyword => lowerText.includes(keyword))) {
     return 'hulk'
   }
   
   // Shipping-related keywords → havoc (default)
+  const shippingKeywords = [
+    'shipping', 'delivery', 'package', 'parcel', 'order', 'tracking',
+    'where is', 'late', 'delayed', 'carrier', 'fedex', 'ups', 'usps',
+    'not received', 'lost', 'missing', 'when will', 'status'
+  ]
+  if (shippingKeywords.some(keyword => lowerText.includes(keyword))) {
+    return 'havoc'
+  }
+
+  // Default to havoc for general queries
   return 'havoc'
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EVENT HANDLER
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export const handler: EventHandler<InputType, EmitData> = async (input, { emit, logger }) => {
   const { text, userInfo, requestId, enableVoiceResponse } = input
 
-  logger.info('[AnalyzeQuery] Received query', { text, userInfo, requestId, enableVoiceResponse })
+  logger.info('[QueryRouter] 🧭 Analyzing query for routing', { 
+    text: text.substring(0, 100), 
+    userInfo, 
+    requestId, 
+    enableVoiceResponse 
+  })
 
-  let result = ''
+  let routingResult = ''
 
   try {
+    // Use LLM for intelligent routing
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: [
@@ -95,23 +160,35 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
       ],
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.3,
-        maxOutputTokens: 100,
+        temperature: 0.3, // Low temperature for consistent routing
+        maxOutputTokens: 50,
       },
     })
 
-    result = response.text?.trim().toLowerCase() ?? ''
-    logger.info('[AnalyzeQuery] AI Response', { result })
+    routingResult = response.text?.trim().toLowerCase() ?? ''
+    
+    // Validate the response
+    if (!['havoc', 'hulk', 'refund'].includes(routingResult)) {
+      logger.warn('[QueryRouter] LLM returned invalid routing, falling back', { 
+        result: routingResult,
+        requestId 
+      })
+      routingResult = routeByKeywords(text)
+    }
+
+    logger.info('[QueryRouter] 🎯 LLM routing decision', { result: routingResult, requestId })
+
   } catch (error: any) {
-    // Fallback to keyword-based routing if AI fails (quota exceeded, etc.)
-    logger.warn('[AnalyzeQuery] AI call failed, using keyword fallback', { 
-      error: error?.message || 'Unknown error' 
+    // Fallback to keyword-based routing if AI fails
+    logger.warn('[QueryRouter] ⚠️ LLM routing failed, using keyword fallback', { 
+      error: error?.message || 'Unknown error',
+      requestId
     })
-    result = routeByKeywords(text)
-    logger.info('[AnalyzeQuery] Keyword fallback result', { result })
+    routingResult = routeByKeywords(text)
+    logger.info('[QueryRouter] 🔑 Keyword fallback result', { result: routingResult, requestId })
   }
 
-  // Pass text, userInfo, requestId, and voice settings to the selected agent
+  // Prepare agent data
   const agentData: AgentData = {
     text,
     userInfo,
@@ -119,33 +196,43 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
     enableVoiceResponse,
   }
 
-  if (result === 'havoc' || result.includes('havoc')) {
+  // Route to appropriate agent
+  if (routingResult === 'havoc' || routingResult.includes('havoc')) {
     await emit({
       topic: 'google.havocRequest',
       data: agentData,
     })
-    logger.info('[AnalyzeQuery] Routed to Agent Havoc (Shipping)', { requestId })
-  } else if (result === 'hulk' || result.includes('hulk')) {
+    logger.info('[QueryRouter] 📦 Routed to Agent Havoc (Shipping)', { requestId })
+
+  } else if (routingResult === 'hulk' || routingResult.includes('hulk')) {
     await emit({
       topic: 'google.hulkRequest',
       data: agentData,
     })
-    logger.info('[AnalyzeQuery] Routed to Agent Hulk (Payments)', { requestId })
-  } else if (result === 'refund' || result.includes('refund')) {
+    logger.info('[QueryRouter] 💳 Routed to Agent Hulk (Payments)', { requestId })
+
+  } else if (routingResult === 'refund' || routingResult.includes('refund')) {
     // Refund requests go through fraud detection first
     await emit({
       topic: 'google.fraud_detectorRequest',
       data: agentData,
     })
-    logger.info('[AnalyzeQuery] Routed to Fraud Detector (Refund Request)', { requestId })
+    logger.info('[QueryRouter] 🔍 Routed to Fraud Detector (Refund Request)', { requestId })
+
   } else {
     // Default to havoc for unknown queries
-    logger.warn('[AnalyzeQuery] Unknown response, defaulting to havoc', { result })
+    logger.warn('[QueryRouter] ❓ Unknown routing result, defaulting to havoc', { 
+      result: routingResult,
+      requestId 
+    })
     await emit({
       topic: 'google.havocRequest',
       data: agentData,
     })
   }
 
-  logger.info('[AnalyzeQuery] Query routed successfully', { agent: result, requestId })
+  logger.info('[QueryRouter] ✅ Query routed successfully', { 
+    agent: routingResult, 
+    requestId 
+  })
 }

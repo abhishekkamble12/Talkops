@@ -13,22 +13,27 @@ declare module 'motia' {
 
   interface Handlers {
     'VoiceOutput': EventHandler<unknown, never>
-    'RefundResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
+    'voiceInput': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
+    'SystemHealthStatus': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'SystemHealthReport': ApiRouteHandler<unknown, unknown, { topic: 'system.health.down'; data: unknown } | { topic: 'system.health.degraded'; data: unknown } | { topic: 'system.health.recovering'; data: unknown } | { topic: 'system.health.alert'; data: unknown }>
     'RefundAgent': EventHandler<unknown, { topic: 'refund.response'; data: unknown }>
     'GetRCAStats': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'RCAReportHandler': EventHandler<unknown, never>
     'GetRCAReport': ApiRouteHandler<Record<string, unknown>, unknown, never>
-    'RCAAnalysisCron': CronHandler<never>
-    'HulkResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
-    'HavocResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
+    'RCAAnalysisCron': CronHandler<{ topic: 'rca.report.generated'; data: unknown }>
     'getVoiceResponse': ApiRouteHandler<Record<string, unknown>, unknown, never>
     'getResponse': ApiRouteHandler<Record<string, unknown>, unknown, never>
     'FraudResponseHandler': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
     'FraudDetector': EventHandler<unknown, { topic: 'google.refund.requested'; data: unknown } | { topic: 'fraud.response'; data: unknown }>
+    'DevAlertHandler': EventHandler<unknown, never>
     'analyzeUserquery': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
-    'Agent_havoc': EventHandler<unknown, { topic: 'havoc.response'; data: unknown }>
-    'Agent_hulk': EventHandler<unknown, { topic: 'hulk.response'; data: unknown }>
+    'Agent_Hulk': EventHandler<unknown, { topic: 'hulk.response'; data: unknown }>
+    'Agent_Havoc': EventHandler<unknown, { topic: 'havoc.response'; data: unknown }>
     'AnalyzeQuery': EventHandler<unknown, { topic: 'google.havocRequest'; data: unknown } | { topic: 'google.hulkRequest'; data: unknown } | { topic: 'google.fraud_detectorRequest'; data: unknown }>
-    'voiceInput': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
+    'Agent_Sentinel_V2': EventHandler<unknown, { topic: 'dev.alert.sent'; data: unknown }>
+    'Agent_Aisha': EventHandler<unknown, { topic: 'voice.synthesize'; data: unknown }>
+    'GetResponse': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'SupportQuery': ApiRouteHandler<unknown, unknown, { topic: 'google.analyzequeryRequest'; data: unknown }>
   }
     
 }

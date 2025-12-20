@@ -1,13 +1,14 @@
 /**
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- * 📦 AGENT HAVOC - Shipping & Delivery Agent
+ * 💳 AGENT HULK - Payment & Billing Agent
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  * 
  * RESPONSIBILITIES:
- * - Handle shipping and delivery inquiries
- * - Track packages and provide status updates
- * - Resolve delivery issues and delays
- * - Coordinate with carriers for lost packages
+ * - Handle payment failures and billing inquiries
+ * - Assist with transaction issues
+ * - Help with payment method updates
+ * - Investigate charges and billing questions
+ * - NOTE: Does NOT handle refunds (those go to fraud detector)
  */
 
 import { EventConfig, EventHandler } from 'motia'
@@ -15,6 +16,7 @@ import { z } from 'zod'
 import { GoogleGenAI } from '@google/genai'
 import { connectToDb } from '../lib/db'
 import { Customer, ICustomer } from '../models/Customer'
+import { Payment, IPayment } from '../models/Payment'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 
@@ -39,13 +41,13 @@ type InputType = z.infer<typeof inputSchema>
 type UserInfo = z.infer<typeof userInfoSchema>
 
 type EmitData = {
-    topic: 'havoc.response'
+    topic: 'hulk.response'
     data: {
         response: string
         agentState?: any
         requestId: string
         enableVoiceResponse?: boolean
-        sourceAgent: 'havoc'
+        sourceAgent: 'hulk'
         customerData?: {
             customerId?: string
             name?: string
@@ -57,31 +59,33 @@ type EmitData = {
 
 export const config: EventConfig = {
     type: 'event',
-    name: 'Agent_Havoc',
-    description: 'HAVOC - Shipping & Delivery Agent. Handles package tracking, delivery status, and shipping issues.',
-    subscribes: ['google.havocRequest'],
-    emits: ['havoc.response'],
+    name: 'Agent_Hulk',
+    description: 'HULK - Payment & Billing Agent. Handles payment failures, transaction issues, and billing inquiries. Does NOT handle refunds.',
+    subscribes: ['google.hulkRequest'],
+    emits: ['hulk.response'],
     input: inputSchema as any,
     flows: ['customer-support'],
 }
 
-const systemPrompt = `You are Agent Havoc, a specialized shipping and delivery support agent.
+const systemPrompt = `You are Agent Hulk, a specialized payment and billing support agent.
 
 Your responsibilities:
-1. Track packages and provide delivery status updates
-2. Investigate shipping delays and issues
-3. Help with lost or damaged packages
-4. Provide estimated delivery times
-5. Coordinate carrier issues
+1. Investigate payment failures and declined transactions
+2. Help with billing inquiries and charge questions
+3. Assist with payment method updates
+4. Explain transaction details
+5. Troubleshoot payment issues
+
+IMPORTANT: You do NOT handle refund requests. If customer asks for a refund, politely explain that refund requests are handled by a specialized team and they should resubmit their request specifically asking for a refund.
 
 When responding:
-- Be helpful and empathetic
-- Provide specific tracking information when available
-- Give clear timelines for resolution
-- Offer alternatives when there are issues
+- Be clear about payment statuses
+- Explain any charges or fees
+- Provide next steps for resolution
+- Be helpful and professional
 
 If customer data is provided, use it to give personalized responses.
-If no order data is found, apologize and ask for more details.`
+If no payment data is found, apologize and ask for more details.`
 
 async function retrieveCustomerData(query: string, userInfo?: UserInfo): Promise<ICustomer | null> {
     await connectToDb()
@@ -96,9 +100,6 @@ async function retrieveCustomerData(query: string, userInfo?: UserInfo): Promise
     }
     if (userInfo?.orderId) {
         exactMatchConditions.push({ 'orders.orderId': userInfo.orderId })
-    }
-    if (userInfo?.trackingNumber) {
-        exactMatchConditions.push({ 'orders.trackingNumber': userInfo.trackingNumber })
     }
     if (userInfo?.phone) {
         exactMatchConditions.push({ phone: userInfo.phone })
@@ -118,7 +119,6 @@ async function retrieveCustomerData(query: string, userInfo?: UserInfo): Promise
                 { email: query.toLowerCase() },
                 { customerId: query },
                 { 'orders.orderId': query },
-                { 'orders.trackingNumber': query },
             ],
         }).lean() as ICustomer | null
     }
@@ -126,7 +126,23 @@ async function retrieveCustomerData(query: string, userInfo?: UserInfo): Promise
     return customer
 }
 
-function formatOrderDataForAI(customer: ICustomer | null, orderId?: string): string {
+async function retrievePaymentData(customerId?: string, orderId?: string): Promise<IPayment[]> {
+    await connectToDb()
+
+    const conditions: any[] = []
+    if (customerId) conditions.push({ customerId })
+    if (orderId) conditions.push({ orderId })
+
+    if (conditions.length === 0) return []
+
+    const payments = await Payment.find({
+        $or: conditions,
+    }).sort({ createdAt: -1 }).limit(5).lean() as IPayment[]
+
+    return payments
+}
+
+function formatPaymentDataForAI(customer: ICustomer | null, payments: IPayment[], orderId?: string): string {
     if (!customer) {
         return 'No customer data found. Ask the customer for their order ID or email.'
     }
@@ -138,86 +154,97 @@ Customer Information:
 - Customer ID: ${customer.customerId || 'N/A'}
 `
 
-    if (customer.orders && customer.orders.length > 0) {
-        const targetOrder = orderId
-            ? customer.orders.find(o => o.orderId === orderId)
-            : customer.orders[customer.orders.length - 1] // Most recent order
-
-        if (targetOrder) {
+    if (payments.length > 0) {
+        formatted += `\nRecent Payment History:\n`
+        payments.forEach((payment, index) => {
             formatted += `
-Order Details:
-- Order ID: ${targetOrder.orderId}
-- Product: ${targetOrder.productName || 'N/A'}
-- Order Date: ${targetOrder.orderDate ? new Date(targetOrder.orderDate).toLocaleDateString() : 'N/A'}
-- Shipping Status: ${targetOrder.shipmentStatus || 'N/A'}
-- Tracking Number: ${targetOrder.trackingNumber || 'Not yet assigned'}
-- Carrier: ${targetOrder.carrier || 'N/A'}
-- Estimated Delivery: ${targetOrder.estimatedDelivery ? new Date(targetOrder.estimatedDelivery).toLocaleDateString() : 'N/A'}
+Payment ${index + 1}:
+- Transaction ID: ${payment.transactionId || 'N/A'}
+- Amount: $${payment.amount || 0}
+- Status: ${payment.status || 'N/A'}
+- Method: ${payment.paymentMethod || 'N/A'}
+- Date: ${payment.createdAt ? new Date(payment.createdAt).toLocaleDateString() : 'N/A'}
+${payment.failureReason ? `- Failure Reason: ${payment.failureReason}` : ''}
 `
-            if (targetOrder.issue) {
-                formatted += `
-Issue Reported:
-- Type: ${targetOrder.issue.type || 'N/A'}
-- Description: ${targetOrder.issue.description || 'N/A'}
+        })
+    }
+
+    // Check for order-specific payment issues
+    if (orderId && customer.orders) {
+        const order = customer.orders.find(o => o.orderId === orderId)
+        if (order) {
+            formatted += `
+Order Details (${orderId}):
+- Product: ${order.productName || 'N/A'}
+- Price: $${order.price || 0}
+- Status: ${order.shipmentStatus || 'N/A'}
+${order.issue?.type === 'payment_failed' ? `- Issue: Payment failed - ${order.issue.description}` : ''}
 `
-            }
-        } else {
-            formatted += `\nNote: Order ${orderId} not found. Customer has ${customer.orders.length} other orders.`
         }
-    } else {
-        formatted += '\nNo orders found for this customer.'
     }
 
     return formatted
 }
 
-function generateFallbackResponse(customer: ICustomer | null, orderId?: string): string {
+function generateFallbackResponse(customer: ICustomer | null, payments: IPayment[]): string {
     if (!customer) {
-        return `I apologize, but I couldn't find any order information matching your details. 
+        return `I apologize, but I couldn't find any account information matching your details.
 
 Could you please provide:
 - Your order confirmation number
-- Or the email address used for the order
+- Or the email address associated with your account
 
-This will help me locate your shipment and provide you with accurate tracking information.`
+This will help me locate your payment information and assist you better.`
     }
 
-    const order = orderId
-        ? customer.orders?.find(o => o.orderId === orderId)
-        : customer.orders?.[customer.orders.length - 1]
+    if (payments.length === 0) {
+        return `Hello ${customer.name || 'there'}! I found your account but couldn't locate any recent payment records. 
 
-    if (!order) {
-        return `Hello ${customer.name || 'there'}! I found your account but couldn't locate the specific order. Could you provide your order ID so I can check on your shipment?`
+Could you provide more details about the payment or charge you're inquiring about? This could be:
+- The transaction date
+- The approximate amount
+- Your order ID
+
+I'm here to help resolve any billing concerns!`
     }
 
+    const latestPayment = payments[0]
     return `Hello ${customer.name || 'there'}!
 
-Here's the status of your order ${order.orderId}:
-- Status: ${order.shipmentStatus || 'Processing'}
-- Tracking: ${order.trackingNumber || 'Pending assignment'}
-- Product: ${order.productName}
+I found your recent payment information:
+- Transaction: ${latestPayment.transactionId}
+- Amount: $${latestPayment.amount}
+- Status: ${latestPayment.status}
+- Date: ${latestPayment.createdAt ? new Date(latestPayment.createdAt).toLocaleDateString() : 'N/A'}
 
-If you have any questions about this shipment, I'm here to help!`
+How can I help you with this transaction?`
 }
 
 export const handler: EventHandler<InputType, EmitData> = async (input, { emit, logger, state }) => {
     const { text, userInfo, requestId, enableVoiceResponse } = input
 
-    logger.info('[Agent Havoc] 📦 Processing shipping inquiry', { text, userInfo, requestId })
+    logger.info('[Agent Hulk] 💳 Processing payment inquiry', { text, userInfo, requestId })
 
     try {
         // Retrieve customer data
         const customer = await retrieveCustomerData(text, userInfo)
 
-        logger.info('[Agent Havoc] Customer lookup result', {
+        logger.info('[Agent Hulk] Customer lookup result', {
             found: !!customer,
             customerId: customer?.customerId,
-            ordersCount: customer?.orders?.length || 0,
+            requestId,
+        })
+
+        // Retrieve payment data
+        const payments = await retrievePaymentData(customer?.customerId, userInfo?.orderId)
+
+        logger.info('[Agent Hulk] Payment lookup result', {
+            paymentsFound: payments.length,
             requestId,
         })
 
         // Format data for AI
-        const formattedData = formatOrderDataForAI(customer, userInfo?.orderId)
+        const formattedData = formatPaymentDataForAI(customer, payments, userInfo?.orderId)
 
         let aiResponse: string
 
@@ -229,7 +256,7 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
                         role: 'user',
                         parts: [
                             {
-                                text: `Customer query: "${text}"\n\n${formattedData}\n\nProvide a helpful response about their shipping/delivery.`,
+                                text: `Customer query: "${text}"\n\n${formattedData}\n\nProvide a helpful response about their payment/billing issue.`,
                             },
                         ],
                     },
@@ -241,16 +268,16 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
                 },
             })
 
-            aiResponse = response.text ?? generateFallbackResponse(customer, userInfo?.orderId)
+            aiResponse = response.text ?? generateFallbackResponse(customer, payments)
         } catch (aiError: any) {
-            logger.warn('[Agent Havoc] AI call failed, using fallback', { error: aiError?.message })
-            aiResponse = generateFallbackResponse(customer, userInfo?.orderId)
+            logger.warn('[Agent Hulk] AI call failed, using fallback', { error: aiError?.message })
+            aiResponse = generateFallbackResponse(customer, payments)
         }
 
         // Store response in state
         await state.set('responses', requestId, {
             status: 'completed',
-            agent: 'havoc',
+            agent: 'hulk',
             response: aiResponse,
             query: text,
             customerData: customer ? {
@@ -262,12 +289,12 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
 
         // Emit response for Aisha to transform
         await emit({
-            topic: 'havoc.response',
+            topic: 'hulk.response',
             data: {
                 response: aiResponse,
                 requestId,
                 enableVoiceResponse,
-                sourceAgent: 'havoc',
+                sourceAgent: 'hulk',
                 customerData: customer ? {
                     customerId: customer.customerId,
                     name: customer.name,
@@ -277,16 +304,16 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
             },
         })
 
-        logger.info('[Agent Havoc] ✅ Response sent', { requestId })
+        logger.info('[Agent Hulk] ✅ Response sent', { requestId })
 
     } catch (error: any) {
-        logger.error('[Agent Havoc] Error processing request', { error: error?.message, requestId })
+        logger.error('[Agent Hulk] Error processing request', { error: error?.message, requestId })
 
-        const errorMessage = 'I apologize, but I encountered an issue looking up your shipment. Please try again or contact support at support@company.com.'
+        const errorMessage = 'I apologize, but I encountered an issue looking up your payment information. Please try again or contact support at support@company.com.'
 
         await state.set('responses', requestId, {
             status: 'completed',
-            agent: 'havoc',
+            agent: 'hulk',
             response: errorMessage,
             query: text,
             error: error?.message,
@@ -294,12 +321,12 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
         })
 
         await emit({
-            topic: 'havoc.response',
+            topic: 'hulk.response',
             data: {
                 response: errorMessage,
                 requestId,
                 enableVoiceResponse,
-                sourceAgent: 'havoc',
+                sourceAgent: 'hulk',
             },
         })
     }

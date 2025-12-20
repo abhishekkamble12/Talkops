@@ -7,11 +7,11 @@ import path from 'path'
 // Lazy initialization to avoid errors when GROQ_API_KEY is not set
 let groqClient: Groq | null = null
 
-function getGroqClient(): Groq {
+function getGroqClient(): Groq | null {
+  if (!process.env.GROQ_API_KEY) {
+    return null
+  }
   if (!groqClient) {
-    if (!process.env.GROQ_API_KEY) {
-      throw new Error('GROQ_API_KEY environment variable is not set. Please add it to your .env file.')
-    }
     groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY })
   }
   return groqClient
@@ -37,31 +37,35 @@ export const config: EventConfig = {
 export const handler: EventHandler<InputType, never> = async (input, { logger, state }) => {
   const { text, requestId } = input
 
-  logger.info('[VoiceOutput] Synthesizing speech', { 
-    requestId, 
-    textLength: text.length 
+  logger.info('[VoiceOutput] Synthesizing speech', {
+    requestId,
+    textLength: text.length,
   })
 
+  const groq = getGroqClient()
+  if (!groq) {
+    logger.warn('[VoiceOutput] GROQ_API_KEY not set, skipping TTS', { requestId })
+    return
+  }
+
   try {
-    const groq = getGroqClient()
-    
     // Generate speech using Groq TTS
     const response = await groq.audio.speech.create({
       model: 'playai-tts',
       voice: 'Fritz-PlayAI',
-      input: text,
+      input: text.substring(0, 4000), // Limit text length for TTS
       response_format: 'wav',
     })
 
     const buffer = Buffer.from(await response.arrayBuffer())
-    
+
     // Save audio file to public directory
     const audioDir = path.join(process.cwd(), 'public', 'audio')
     await fs.promises.mkdir(audioDir, { recursive: true })
-    
+
     const audioFileName = `response_${requestId}.wav`
     const audioFilePath = path.join(audioDir, audioFileName)
-    
+
     await fs.promises.writeFile(audioFilePath, buffer)
 
     // Update state with audio URL
@@ -75,18 +79,18 @@ export const handler: EventHandler<InputType, never> = async (input, { logger, s
       })
     }
 
-    logger.info('[VoiceOutput] Speech synthesized successfully', { 
-      requestId, 
+    logger.info('[VoiceOutput] Speech synthesized successfully', {
+      requestId,
       audioUrl: `/audio/${audioFileName}`,
       audioSize: buffer.length,
     })
   } catch (error: any) {
-    logger.error('[VoiceOutput] TTS synthesis failed', { 
-      error: error?.message, 
-      requestId 
+    logger.error('[VoiceOutput] TTS synthesis failed', {
+      error: error?.message,
+      requestId,
     })
 
-    // Update state with error
+    // Update state with error (but don't fail the whole flow)
     const currentState = await state.get<any>('responses', requestId)
     if (currentState) {
       await state.set('responses', requestId, {
@@ -97,4 +101,3 @@ export const handler: EventHandler<InputType, never> = async (input, { logger, s
     }
   }
 }
-

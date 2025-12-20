@@ -1,4 +1,35 @@
 ===========================================
+   🤖 UNIFIED AGENTIC BACKEND SYSTEM
+===========================================
+
+This system contains FOUR autonomous AI agents:
+
+🚚 AGENT HAVOC (Shipping Support)
+   - Handles shipping delays, tracking, delivery issues
+   - Fetches customer data from MongoDB
+   - Builds structured agentState for LLM reasoning
+   - Emits: havoc.response → Agent Aisha
+
+💳 AGENT HULK (Payment Support)
+   - Handles payment failures, billing, refunds
+   - Detects retry counts, gateway failures
+   - Builds structured agentState for LLM reasoning
+   - Emits: hulk.response → Agent Aisha
+
+🚨 AGENT SENTINEL (DevOps/SRE)
+   - Monitors system health events
+   - Determines severity using policies
+   - Generates AI incident summaries
+   - Notifies developers (Slack/PagerDuty/Email)
+   - Emits: dev.alert.sent
+
+🎙️ AGENT AISHA (Voice Customer Care)
+   - Communication layer for customers
+   - Listens to: havoc.response, hulk.response, refund.response
+   - Transforms internal responses into empathetic, voice-friendly messages
+   - Triggers voice synthesis (voice.synthesize)
+
+===========================================
    🚀 QUICK START - COPY THESE PAYLOADS!
 ===========================================
 
@@ -65,6 +96,39 @@ URL: http://localhost:3000/api/voice/response/{paste-requestId-here}
 GET http://localhost:3000/api/rca/stats
 GET http://localhost:3000/api/rca/report
 GET http://localhost:3000/api/rca/report?hours=12&format=text
+
+-------------------------------------------
+🚨 SYSTEM HEALTH API (New! Agent Sentinel)
+-------------------------------------------
+POST http://localhost:3000/api/system/health
+
+Body (Service Down - Critical):
+{
+    "event_type": "system.health.down",
+    "service_name": "payment-gateway",
+    "error_message": "Connection refused to Stripe API",
+    "error_rate": 100,
+    "affected_endpoints": ["/api/checkout", "/api/payment/process"]
+}
+
+Body (Service Degraded):
+{
+    "event_type": "system.health.degraded",
+    "service_name": "api-gateway",
+    "error_message": "High latency detected",
+    "error_rate": 35,
+    "response_time_ms": 8500,
+    "affected_endpoints": ["/api/orders", "/api/products"]
+}
+
+Body (Warning):
+{
+    "event_type": "system.health.warning",
+    "service_name": "database-primary",
+    "error_message": "Connection pool reaching limit",
+    "error_rate": 5,
+    "metadata": {"pool_usage": "85%"}
+}
 
 ===========================================
    API ENDPOINTS

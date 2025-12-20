@@ -5,7 +5,7 @@
  * In production, this could be backed by a database table.
  */
 
-export type FailureType = 'payment' | 'fraud' | 'shipping'
+export type FailureType = 'payment' | 'fraud' | 'shipping' | 'system'
 
 export interface FailureEvent {
   id: string

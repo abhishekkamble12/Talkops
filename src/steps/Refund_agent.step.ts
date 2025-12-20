@@ -38,7 +38,9 @@ type EmitData = {
     refundApproved: boolean
     refundAmount?: number
     refundId?: string
-    customerData?: any 
+    customerData?: any
+    sourceAgent: 'refund'
+    enableVoiceResponse?: boolean
   }
 }
 
@@ -169,6 +171,8 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
         response: errorMessage,
         requestId,
         refundApproved: false,
+        sourceAgent: 'refund',
+        enableVoiceResponse,
       },
     })
     return
@@ -225,7 +229,7 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
       completedAt: new Date().toISOString(),
     })
 
-    // Emit refund response
+    // Emit refund response (Aisha will process this for communication)
     await emit({
       topic: 'refund.response',
       data: {
@@ -235,6 +239,8 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
         refundId,
         refundAmount,
         customerData,
+        sourceAgent: 'refund',
+        enableVoiceResponse,
       },
     })
 
@@ -266,6 +272,8 @@ export const handler: EventHandler<InputType, EmitData> = async (input, { emit, 
         response: errorMessage,
         requestId,
         refundApproved: false,
+        sourceAgent: 'refund',
+        enableVoiceResponse,
       },
     })
   }
